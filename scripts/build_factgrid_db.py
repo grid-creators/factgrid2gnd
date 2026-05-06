@@ -9,22 +9,28 @@ into a SQLite database with three tables:
   - gnd_ids:   qid, gnd_id (P76 claims, for GND ID resolution)
 
 Usage:
-    python build_factgrid_db.py
+    python build_factgrid_db.py [<input.json> ...]
 
-Input:  data/2026-04-03.json (~6.4GB)
+Input:  data/2026-04-16.json (~6.4GB) by default, or one-or-more paths passed
+        on the CLI. Multiple inputs are streamed in order — typical refresh
+        run passes both data/subset_P2_Q7.json (full person items) and
+        data/subset_referenced_labels.json (label-only stubs for items
+        referenced by P247/P248/P82/... so name/place labels resolve in
+        offline mode).
 Output: factgrid.db
 """
 
 import json
 import os
 import sqlite3
+import sys
 import time
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.join(SCRIPT_DIR, "..")
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 
-JSON_INPUT = os.path.join(DATA_DIR, "2026-04-03.json")
+DEFAULT_JSON_INPUT = os.path.join(DATA_DIR, "2026-04-16.json")
 DB_OUTPUT = os.path.join(ROOT_DIR, "factgrid.db")
 
 BATCH_SIZE = 5000
@@ -89,9 +95,11 @@ def extract_gnd_ids(item):
 
 
 def main():
-    if not os.path.exists(JSON_INPUT):
-        print(f"Error: Input file not found: {JSON_INPUT}")
-        return
+    json_inputs = sys.argv[1:] if len(sys.argv) > 1 else [DEFAULT_JSON_INPUT]
+    for path in json_inputs:
+        if not os.path.exists(path):
+            print(f"Error: Input file not found: {path}")
+            return
 
     if os.path.exists(DB_OUTPUT):
         os.remove(DB_OUTPUT)
@@ -129,35 +137,35 @@ def main():
     label_batch = []
     gnd_batch = []
 
-    print(f"Streaming {JSON_INPUT} ...")
+    for json_input in json_inputs:
+        print(f"Streaming {json_input} ...")
+        for item in stream_items(json_input):
+            qid = item.get("id", "")
+            item_type = item.get("type", "")
+            if not qid:
+                continue
 
-    for item in stream_items(JSON_INPUT):
-        qid = item.get("id", "")
-        item_type = item.get("type", "")
-        if not qid:
-            continue
+            total += 1
+            entity_batch.append((qid, item_type, json.dumps(item, ensure_ascii=False)))
 
-        total += 1
-        entity_batch.append((qid, item_type, json.dumps(item, ensure_ascii=False)))
+            for lang, label in extract_labels(item):
+                if label:
+                    label_batch.append((qid, lang, label))
 
-        for lang, label in extract_labels(item):
-            if label:
-                label_batch.append((qid, lang, label))
+            for gnd_id in extract_gnd_ids(item):
+                if gnd_id:
+                    gnd_batch.append((qid, gnd_id))
 
-        for gnd_id in extract_gnd_ids(item):
-            if gnd_id:
-                gnd_batch.append((qid, gnd_id))
-
-        if total % BATCH_SIZE == 0:
-            conn.executemany("INSERT OR REPLACE INTO entities VALUES (?, ?, ?)", entity_batch)
-            conn.executemany("INSERT INTO labels VALUES (?, ?, ?)", label_batch)
-            conn.executemany("INSERT INTO gnd_ids VALUES (?, ?)", gnd_batch)
-            conn.commit()
-            entity_batch.clear()
-            label_batch.clear()
-            gnd_batch.clear()
-            elapsed = time.time() - start
-            print(f"  ... {total:,} items ({elapsed:.0f}s)", flush=True)
+            if total % BATCH_SIZE == 0:
+                conn.executemany("INSERT OR REPLACE INTO entities VALUES (?, ?, ?)", entity_batch)
+                conn.executemany("INSERT INTO labels VALUES (?, ?, ?)", label_batch)
+                conn.executemany("INSERT INTO gnd_ids VALUES (?, ?)", gnd_batch)
+                conn.commit()
+                entity_batch.clear()
+                label_batch.clear()
+                gnd_batch.clear()
+                elapsed = time.time() - start
+                print(f"  ... {total:,} items ({elapsed:.0f}s)", flush=True)
 
     # Flush remaining
     if entity_batch:
