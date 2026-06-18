@@ -4,7 +4,7 @@ Mapping configuration: FactGrid properties to GND MARC 21 fields.
 Based on 'Anforderungen GND_FG_neu.xlsx', sheet 'Personen_GND'.
 """
 
-# FactGrid ISIL
+# ISIL of the submitting institution (Historisches Datenzentrum Sachsen-Anhalt)
 ISIL = "DE-4218"
 
 # Leader for person authority records

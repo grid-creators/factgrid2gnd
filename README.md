@@ -2,7 +2,7 @@
 
 Konvertiert Personendatensaetze aus [FactGrid](https://database.factgrid.de/) (Wikibase) in GND-Normdatensaetze im MARC 21 XML-Format (`.mrcx`) fuer die Deutsche Nationalbibliothek.
 
-FactGrid ISIL: **DE-4218**
+ISIL der einspielenden Einrichtung (Historisches Datenzentrum Sachsen-Anhalt): **DE-4218**
 
 **Demo:** https://factgrid2gnd.grid-creators.com/
 
