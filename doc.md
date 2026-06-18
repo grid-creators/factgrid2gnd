@@ -54,7 +54,7 @@ Adelstitel Priorität bei Personen noch mal anschauen
 
 ## Quellcode und Technologie-Stack
 
-Der gesamte Quellcode ist öffentlich auf GitHub verfügbar: **https://github.com/grid-creators/fg2marc21**. Eine lauffähige Demo-Instanz steht unter **https://factgrid2gnd.grid-creators.com/** bereit.
+Der gesamte Quellcode ist öffentlich auf GitHub verfügbar: **https://github.com/grid-creators/factgrid2gnd**. Eine lauffähige Demo-Instanz steht unter **https://factgrid2gnd.grid-creators.com/** bereit.
 
 Das Tool ist als klassische Client-Server-Anwendung aufgebaut:
 

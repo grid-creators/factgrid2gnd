@@ -9,7 +9,7 @@ FactGrid ISIL: **DE-4218**
 ## Architektur
 
 ```
-fg2marc21/
+factgrid2gnd/
 ├── backend/              # Flask REST API (Python)
 │   ├── app.py            # API-Endpunkte
 │   ├── converter.py      # Kernlogik: FactGrid → MARC 21
