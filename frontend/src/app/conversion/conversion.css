@@ -58,6 +58,55 @@
   font-size: 0.9rem;
 }
 
+.field079q-row {
+  align-items: flex-start;
+}
+
+.field079q-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field079q-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-remove-079q {
+  background: none;
+  border: 1px solid #d1d5db;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.btn-remove-079q:hover {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+.btn-add-079q {
+  align-self: flex-start;
+  background: none;
+  border: 1px dashed #d1d5db;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 3px;
+}
+
+.btn-add-079q:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
 .input-667a {
   flex: 1;
   padding: 4px 8px;
@@ -139,10 +188,52 @@
   background: #fafafa;
 }
 
-.record-list h3 {
-  margin: 0 0 10px 0;
+.record-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.record-list-header h3 {
+  margin: 0;
   font-size: 0.95rem;
   color: #374151;
+}
+
+.record-select-all {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.record-select-all input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.record-select-checkbox {
+  margin: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.export-indicator {
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.export-indicator.export-ok {
+  color: #16a34a;
+}
+
+.export-indicator.export-blocked {
+  color: #dc2626;
 }
 
 .record-item {
@@ -165,24 +256,40 @@
   border-color: #2563eb;
 }
 
+.record-item.is-duplicate {
+  border-color: #f59e0b;
+}
+
+.dup-badge {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 6px;
+  background: #f59e0b;
+  color: white;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  cursor: help;
+}
+
 .record-info {
   flex: 1;
   min-width: 0;
 }
 
-.record-qid {
+.record-label {
   display: block;
   font-weight: 600;
   font-size: 0.85rem;
-}
-
-.record-label {
-  display: block;
-  font-size: 0.75rem;
-  color: #6b7280;
+  color: #111827;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.record-qid {
+  display: block;
+  font-size: 0.75rem;
+  color: #6b7280;
 }
 
 .status-dot {
@@ -237,6 +344,15 @@
 .record-editor h2 {
   font-size: 1.1rem;
   margin: 0 0 16px 0;
+}
+
+.factgrid-link {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.factgrid-link:hover {
+  text-decoration: underline;
 }
 
 .field-section {
@@ -296,6 +412,33 @@
   background: white;
 }
 
+.datafield-block.has-date-alternatives {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.datafield-block.has-date-alternatives > .datafield-header {
+  background: #fef3c7;
+}
+
+.datafield-block.missing-gnd-ref {
+  border-color: #eab308;
+  background: #fef9c3;
+}
+
+.datafield-block.missing-gnd-ref > .datafield-header {
+  background: #fde047;
+}
+
+.missing-gnd-badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  background: #eab308;
+  color: #000;
+  border-radius: 3px;
+  cursor: help;
+}
+
 .datafield-header {
   display: flex;
   align-items: center;
@@ -324,6 +467,67 @@
 
 .subfields {
   padding: 6px 10px;
+}
+
+/* Date alternative selection (548 datl/datx) */
+
+.date-alternatives-section {
+  border: 1px solid #f59e0b;
+  background: #fffbeb;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.date-alternatives-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: #92400e;
+}
+
+.date-alternatives-section .date-select-row {
+  margin-bottom: 8px;
+}
+
+.date-alternatives-section .date-select-row:last-child {
+  margin-bottom: 0;
+}
+
+.date-select-row {
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  background: #fef3c7;
+  border: 2px solid #f59e0b;
+  border-radius: 4px;
+}
+
+.date-select-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #92400e;
+  margin-bottom: 4px;
+}
+
+.date-no-selection {
+  font-size: 0.8rem;
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.date-checkbox-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.date-checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  cursor: pointer;
 }
 
 .gnd-select-row {
@@ -370,6 +574,27 @@
   flex-shrink: 0;
 }
 
+.subfield-code-prefix {
+  font-family: monospace;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #7c3aed;
+  flex-shrink: 0;
+}
+
+.subfield-code-input {
+  width: 26px;
+  padding: 3px 4px;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  font-family: monospace;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #7c3aed;
+  text-align: center;
+  flex-shrink: 0;
+}
+
 .subfield-input {
   flex: 1;
   padding: 3px 6px;
@@ -393,6 +618,24 @@
 
 .btn-remove:hover {
   background: #fee2e2;
+}
+
+.btn-remove-record {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.btn-remove-record:hover {
+  background: #fee2e2;
+  color: #ef4444;
 }
 
 .btn-remove-small {
@@ -574,7 +817,27 @@
 
 .export-section {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding-top: 8px;
   border-top: 1px solid #e5e7eb;
+}
+
+.export-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.export-block-info {
+  font-size: 0.8rem;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.export-block-info ul {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
 }

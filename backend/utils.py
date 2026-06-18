@@ -425,30 +425,56 @@ def format_wikibase_date(time_value, as_exact=False):
         if precision >= 11:
             return f"{sign}{day}.{month}.{year}"
         elif precision >= 10:
+            # Month + year known, day unknown: render the day explicitly as XX
+            # (e.g. "XX.07.1785") so it is unambiguous and consistent with the
+            # XX.XX.XXXX placeholder for fully missing dates.
             return f"{sign}XX.{month}.{year}"
         elif precision >= 9:
-            return f"{sign}XX.XX.{year}"
+            return f"{sign}{year}"
+        elif precision == 8:
+            # Decade: e.g. 1810 -> 181X
+            return f"{sign}{year[:3]}X" if len(year) >= 3 else f"{sign}XXXX"
+        elif precision == 7:
+            # Century: e.g. 1810 -> 18XX (19th century = 18XX)
+            return f"{sign}{year[:2]}XX" if len(year) >= 2 else f"{sign}XXXX"
         else:
-            return f"{sign}XX.XX.XXXX"
+            return f"{sign}XXXX"
     else:
         if precision >= 9:
             return f"{sign}{year}"
+        elif precision == 8:
+            # Decade: e.g. 1810 -> 181X
+            return f"{sign}{year[:3]}X" if len(year) >= 3 else f"{sign}XXXX"
+        elif precision == 7:
+            # Century: e.g. 1810 -> 18XX (19th century = 18XX)
+            return f"{sign}{year[:2]}XX" if len(year) >= 2 else f"{sign}XXXX"
         else:
             return f"{sign}XXXX"
+
+
+def date_has_month_or_day(time_value):
+    """Return True if a Wikibase time value carries month- or day-level info.
+
+    Precision >= 10 means at least the month is known (10 = month, 11 = day).
+    Year-only (9) or coarser values have no month/day info. None/strings are
+    treated as not exact. Used to keep year-only dates out of field 548 datx
+    ("exakte Lebensdaten"), where they carry no exact (month/day) information.
+    """
+    return isinstance(time_value, dict) and time_value.get("precision", 11) >= 10
 
 
 def format_date_range(birth_value, death_value):
     """Create a date range string like '1749-1832' or '1892-XXXX'.
 
     Missing death date is replaced with XXXX.
-    Missing birth date: field is omitted (returned empty).
+    Missing/unknown birth date: returned as '-death' (e.g. '-1880').
     """
     birth = format_wikibase_date(birth_value) if birth_value else ""
     death = format_wikibase_date(death_value) if death_value else "XXXX"
 
-    if birth:
-        return f"{birth}-{death}"
-    return ""
+    if not birth or birth == "XXXX":
+        return f"-{death}" if death and death != "XXXX" else ""
+    return f"{birth}-{death}"
 
 
 def format_exact_date_range(birth_value, death_value):
@@ -460,9 +486,9 @@ def format_exact_date_range(birth_value, death_value):
     birth = format_wikibase_date(birth_value, as_exact=True) if birth_value else ""
     death = format_wikibase_date(death_value, as_exact=True) if death_value else "XX.XX.XXXX"
 
-    if birth:
-        return f"{birth}-{death}"
-    return ""
+    if not birth or birth == "XX.XX.XXXX":
+        return f"-{death}" if death and death != "XX.XX.XXXX" else ""
+    return f"{birth}-{death}"
 
 
 def build_preferred_name(entity, resolved_labels):
@@ -482,18 +508,18 @@ def build_preferred_name(entity, resolved_labels):
     if family_name and given_names:
         core, prefix = _split_name_prefix(family_name)
         if prefix:
-            return f"{core}, {given_names} {prefix}"
+            return f"{core}, {given_names} \x98{prefix}\x9c"
         return f"{core}, {given_names}"
     elif family_name:
         return family_name
     elif given_names:
         return given_names
 
-    # Fallback: use German or English label
+    # Fallback: use German or English label, reformatted to preferred name style
     labels = entity.get("labels", {})
     for lang in ["de", "en"]:
         if lang in labels:
-            return labels[lang]["value"]
+            return reformat_name_to_preferred(labels[lang]["value"])
     return entity.get("id", "")
 
 
@@ -526,6 +552,47 @@ def _split_name_prefix(family_name):
             original_prefix = family_name[:len(prefix)]
             return core.strip(), original_prefix.strip()
     return family_name, ""
+
+
+def reformat_name_to_preferred(name):
+    """Reformat a free-form name variant into 'Nachname, Vorname Namenszusatz'.
+
+    Used for field 400 variants coming from aliases/labels/P34, which are
+    free-form strings (not structured P247/P248 claims like field 100).
+
+    Heuristic: the last whitespace-separated token is the family name; any
+    trailing tokens in the preceding part that match a known name prefix
+    (von, van der, de la, ...) are moved behind the given names.
+
+    Examples:
+        "Johann Wolfgang von Goethe" -> "Goethe, Johann Wolfgang von"
+        "Ludwig van Beethoven"       -> "Beethoven, Ludwig van"
+        "Goethe, Johann Wolfgang"    -> "Goethe, Johann Wolfgang"  (already formatted)
+        "Aristoteles"                -> "Aristoteles"              (single token)
+    """
+    if not name:
+        return name
+    if "," in name:
+        return name
+    tokens = name.split()
+    if len(tokens) < 2:
+        return name
+
+    family = tokens[-1]
+    before = tokens[:-1]
+    lower_before = [t.lower() for t in before]
+
+    for prefix in _NAME_PREFIXES:
+        prefix_tokens = prefix.split()
+        n = len(prefix_tokens)
+        if len(lower_before) >= n and lower_before[-n:] == prefix_tokens:
+            given_tokens = before[:-n]
+            prefix_tokens_orig = before[-n:]
+            if not given_tokens:
+                return name
+            return f"{family}, {' '.join(given_tokens)} \x98{' '.join(prefix_tokens_orig)}\x9c"
+
+    return f"{family}, {' '.join(before)}"
 
 
 def _get_family_name(entity, resolved_labels):

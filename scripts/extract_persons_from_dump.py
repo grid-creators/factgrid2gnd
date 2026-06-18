@@ -7,12 +7,14 @@ Two passes over the dump:
      and collect all QIDs referenced through claim properties relevant for
      conversion (family/given names, places, occupations) plus their
      qualifier entity-id values.
-  2. Stream the dump again, write label-only stubs ({id, type, labels}) for
-     every referenced QID that is NOT itself a person, into
-     data/subset_referenced_labels.json. These stubs let
-     build_factgrid_db.py populate the `labels` table for non-person items
-     (e.g. family-name and given-name items used by P247/P248), without
-     bloating `entities` with full claims for those items.
+  2. Stream the dump again, write minimal stubs ({id, type, labels, claims})
+     for every referenced QID that is NOT itself a person, into
+     data/subset_referenced_labels.json. The `claims` dict is filtered to
+     only the properties needed for offline conversion lookups: P76 (GND ID,
+     used for fields 035/550/551 GND references and country-code chain) and
+     P48 (coordinates, used by resolve_country_code_from_coordinates as
+     Nominatim fallback when a place has no GND record). Everything else is
+     dropped to keep the file small.
 
 Usage:
     python extract_persons_from_dump.py [<dump-file>]
@@ -38,6 +40,11 @@ PERSON_CLASS = "Q7"
 # Properties whose values (and qualifier entity-ids) need label resolution
 # during MARC conversion. Keep in sync with utils.collect_referenced_entity_ids.
 RELEVANT_PROPS = {"P247", "P248", "P82", "P168", "P83", "P1372", "P165"}
+
+# Properties to retain on referenced-item stubs so that offline lookups in
+# factgrid_local.resolve_gnd_ids (needs P76) and resolve_country_code_from_
+# coordinates (needs P48) work the same as the live SPARQL path.
+STUB_KEEP_PROPS = {"P76", "P48"}
 
 
 def is_person(item):
@@ -165,10 +172,13 @@ def main():
             qid = item.get("id", "")
             if not qid or qid not in needed:
                 continue
+            claims = item.get("claims", {})
+            kept_claims = {p: claims[p] for p in STUB_KEEP_PROPS if p in claims}
             stub = {
                 "id": qid,
                 "type": item.get("type", "item"),
                 "labels": item.get("labels", {}),
+                "claims": kept_claims,
             }
             if not first:
                 out.write(",\n")

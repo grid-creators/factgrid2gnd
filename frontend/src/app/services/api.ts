@@ -18,12 +18,18 @@ export interface GndAlternative {
   label: string;
 }
 
+export interface DateAlternative {
+  value: string;
+  label: string;
+}
+
 export interface MarcDataField {
   tag: string;
   ind1: string;
   ind2: string;
   subfields: MarcSubfield[];
   gnd_alternatives?: GndAlternative[];
+  date_alternatives?: DateAlternative[];
 }
 
 export interface ValidationResult {
@@ -76,9 +82,10 @@ export class ApiService {
     return this.http.get<{ record?: MarcRecord; error?: string }>(`${this.baseUrl}/convert/${qid}?source=${source}`);
   }
 
-  convertStream(qids: string[], source: string = 'server', field079q: string = 'd', field667a: string = '', field400Sources: string = 'aliases,labels,p34'): Observable<StreamEvent> {
+  convertStream(qids: string[], source: string = 'server', field079q: string[] = ['d'], field667a: string = ''): Observable<StreamEvent> {
     return new Observable<StreamEvent>(observer => {
-      const url = `${this.baseUrl}/convert/stream?qids=${qids.join(',')}&source=${source}&field079q=${field079q}&field667a=${encodeURIComponent(field667a)}&field400sources=${field400Sources}`;
+      const q = (field079q.length > 0 ? field079q : ['d']).join(',');
+      const url = `${this.baseUrl}/convert/stream?qids=${qids.join(',')}&source=${source}&field079q=${encodeURIComponent(q)}&field667a=${encodeURIComponent(field667a)}`;
       const eventSource = new EventSource(url);
       eventSource.onmessage = (event) => {
         const data: StreamEvent = JSON.parse(event.data);

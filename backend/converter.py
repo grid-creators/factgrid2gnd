@@ -16,7 +16,9 @@ from utils import (
     format_wikibase_date,
     format_date_range,
     format_exact_date_range,
+    date_has_month_or_day,
     build_preferred_name,
+    reformat_name_to_preferred,
     format_005_timestamp,
     format_008_field,
     collect_referenced_entity_ids,
@@ -37,9 +39,14 @@ from mappings_config import (
     PROP_DEATH_PLACE,
     PROP_PLACE_OF_ACTIVITY,
     PROP_PLACE_OF_ACTIVITY_2,
+    PROP_ACTIVITY_START,
+    PROP_ACTIVITY_END,
+    ACTIVITY_EVENT_PROPS,
+    GND_PERIOD_OF_ACTIVITY,
     MANDATORY_TAGS,
     INDIVIDUALIZATION_GROUP1,
     INDIVIDUALIZATION_GROUP2,
+    INDIVIDUALIZATION_SUBTYPE_CODES,
     MIN_INDIVIDUALIZATION_TOTAL,
     MIN_INDIVIDUALIZATION_GROUP1,
     FIELD_DESCRIPTIONS,
@@ -48,14 +55,17 @@ from mappings_config import (
 MARC_NS = "http://www.loc.gov/MARC21/slim"
 
 
-def convert_entities(qids, source="server", field079q="d", field667a="Historisches Datenzentrum Sachsen-Anhalt", field400sources=None):
+def convert_entities(qids, source="server", field079q=("d",), field667a="Historisches Datenzentrum Sachsen-Anhalt"):
     """Convert a list of FactGrid QIDs to MARC 21 records.
+
+    field079q may be a string or a sequence of strings; each value becomes one
+    repeated $q subfield in the single 079 datafield.
 
     Returns: {"records": [...], "errors": [...]}
     """
     records = []
     errors = []
-    for event in convert_entities_stream(qids, source=source, field079q=field079q, field667a=field667a, field400sources=field400sources):
+    for event in convert_entities_stream(qids, source=source, field079q=field079q, field667a=field667a):
         if event["type"] == "record":
             records.append(event["record"])
         elif event["type"] == "error":
@@ -63,7 +73,7 @@ def convert_entities(qids, source="server", field079q="d", field667a="Historisch
     return {"records": records, "errors": errors}
 
 
-def convert_entities_stream(qids, source="server", field079q="d", field667a="Historisches Datenzentrum Sachsen-Anhalt", field400sources=None):
+def convert_entities_stream(qids, source="server", field079q=("d",), field667a="Historisches Datenzentrum Sachsen-Anhalt"):
     """Convert QIDs to MARC 21 records, yielding progress events.
 
     Yields dicts: {"type": "progress", "message": "..."} or
@@ -112,7 +122,7 @@ def convert_entities_stream(qids, source="server", field079q="d", field667a="His
         converted += 1
         yield {"type": "progress", "message": f"Konvertiere {qid} ({converted}/{len(entities)})..."}
         try:
-            record = convert_entity_to_marc(entities[qid], resolved_labels, resolved_gnd_ids, gnd_preferred_names, source=source, field079q=field079q, field667a=field667a, field400sources=field400sources)
+            record = convert_entity_to_marc(entities[qid], resolved_labels, resolved_gnd_ids, gnd_preferred_names, source=source, field079q=field079q, field667a=field667a)
             record["validation"] = validate_record(record)
             record["validation"]["warnings"] = record.pop("warnings") + record["validation"]["warnings"]
             yield {"type": "record", "record": record}
@@ -140,7 +150,7 @@ def _get_gnd_id(resolved_gnd_ids, ref_qid, warnings, tag="", display_name="", gn
     return gnd_list[0]
 
 
-def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_preferred_names=None, source="server", field079q="d", field667a="Historisches Datenzentrum Sachsen-Anhalt", field400sources=None):
+def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_preferred_names=None, source="server", field079q=("d",), field667a="Historisches Datenzentrum Sachsen-Anhalt"):
     """Convert a single FactGrid entity to a MARC 21 record dict."""
     qid = entity.get("id", "")
     gnd_warnings = []
@@ -185,14 +195,24 @@ def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_p
     )
 
     # --- Constant datafields (040, 042, 075, 079) ---
+    # Normalise field079q into a list of non-empty strings (allows passing
+    # a single string for back-compat with old callers and tests).
+    if isinstance(field079q, str):
+        q_values = [field079q] if field079q else []
+    else:
+        q_values = [v for v in field079q if v]
+    if not q_values:
+        q_values = ["d"]
+
     for field in CONSTANT_DATAFIELDS:
         subfields = []
         for sf in field["subfields"]:
-            value = sf["value"]
-            # Override 079 $q with user-selected Teilbestandskennzeichen
+            # Expand 079 $q into one subfield per user-selected Teilbestandskennzeichen
             if field["tag"] == "079" and sf["code"] == "q":
-                value = field079q
-            subfields.append({"code": sf["code"], "value": value})
+                for q in q_values:
+                    subfields.append({"code": "q", "value": q})
+                continue
+            subfields.append({"code": sf["code"], "value": sf["value"]})
         datafields.append(
             {
                 "tag": field["tag"],
@@ -239,28 +259,63 @@ def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_p
                 country_code_source = f"{label} {place_name}"
                 break
 
-    if country_code:
-        datafields.append(
-            {
-                "tag": "043",
-                "ind1": " ",
-                "ind2": " ",
-                "subfields": [{"code": "c", "value": country_code}],
-            }
-        )
-    else:
+    # Always emit field 043 so the user can enter the country code manually when
+    # it could not be resolved automatically ($c stays empty in that case).
+    datafields.append(
+        {
+            "tag": "043",
+            "ind1": " ",
+            "ind2": " ",
+            "subfields": [{"code": "c", "value": country_code}],
+        }
+    )
+    if not country_code:
         gnd_warnings.append(
             "Ländercode (043) konnte nicht ermittelt werden — "
-            "kein Ort mit GND-ID oder Koordinaten gefunden"
+            "bitte manuell eintragen (kein Ort mit GND-ID oder Koordinaten gefunden)"
         )
 
     # --- Preferred name (100) ---
     preferred_name = build_preferred_name(entity, resolved_labels)
     birth_claims = extract_claim_values(entity, PROP_BIRTH_DATE)
     death_claims = extract_claim_values(entity, PROP_DEATH_DATE)
-    birth_val = birth_claims[0]["value"] if birth_claims else None
-    death_val = death_claims[0]["value"] if death_claims else None
-    date_range = format_date_range(birth_val, death_val)
+    birth_val = next((c["value"] for c in birth_claims if c["rank"] == "preferred"),
+                     birth_claims[0]["value"] if birth_claims else None)
+    death_val = next((c["value"] for c in death_claims if c["rank"] == "preferred"),
+                     death_claims[0]["value"] if death_claims else None)
+    # Life-date alternatives (shared by the datl picker and the name fields).
+    has_multiple_dates = len(birth_claims) > 1 or len(death_claims) > 1
+    date_alternatives = []
+    if has_multiple_dates:
+        # Only offer alternatives without a birth date when there is genuinely no
+        # birth claim. If a birth date exists, every alternative keeps it (no
+        # "-death"-only options). Death keeps its None (unknown death is valid).
+        birth_values = [c["value"] for c in birth_claims] or [None]
+        death_values = [c["value"] for c in death_claims] + [None]
+        seen_ranges = set()
+        for bv in birth_values:
+            for dv in death_values:
+                dr = format_date_range(bv, dv)
+                if dr and dr not in seen_ranges:
+                    seen_ranges.add(dr)
+                    b_str = format_wikibase_date(bv) if bv else ""
+                    d_str = format_wikibase_date(dv) if dv else "XXXX"
+                    if not b_str or b_str == "XXXX":
+                        b_str = ""
+                    date_alternatives.append({"value": dr, "label": f"{b_str}–{d_str}"})
+
+    # datl is pre-selected only when BOTH birth and death have a preferred-rank
+    # claim; otherwise the picker is shown without pre-selection (datl $a empty).
+    show_picker = has_multiple_dates and len(date_alternatives) > 1
+    both_preferred = (
+        any(c["rank"] == "preferred" for c in birth_claims)
+        and any(c["rank"] == "preferred" for c in death_claims)
+    )
+    datl_no_preselection = show_picker and not both_preferred
+
+    # Life-date range carried in $d of the name fields (100/400). Kept in sync
+    # with datl: when datl has no pre-selection, $d is left empty too.
+    date_range = "" if datl_no_preselection else format_date_range(birth_val, death_val)
 
     field_100_subfields = [{"code": "a", "value": preferred_name}]
     if date_range:
@@ -274,12 +329,11 @@ def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_p
         }
     )
 
-    # --- Variant names (400) from selected sources ---
-    if field400sources is None:
-        field400sources = ["aliases", "labels", "p34"]
+    # --- Variant names (400) from P34 ---
     seen_variants = set()
 
     def _add_variant(name):
+        name = reformat_name_to_preferred(name)
         if name and name != preferred_name and name not in seen_variants:
             seen_variants.add(name)
             subfields_400 = [{"code": "a", "value": name}]
@@ -294,34 +348,25 @@ def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_p
                 }
             )
 
-    if "aliases" in field400sources:
-        aliases = entity.get("aliases", {})
-        for lang, alias_list in aliases.items():
-            for alias_entry in alias_list:
-                _add_variant(alias_entry.get("value", ""))
-
-    if "labels" in field400sources:
-        labels = entity.get("labels", {})
-        for lang, label_entry in labels.items():
-            _add_variant(label_entry.get("value", ""))
-
-    if "p34" in field400sources:
-        p34_claims = extract_claim_values(entity, "P34")
-        for claim in p34_claims:
-            _add_variant(claim["value"])
+    for claim in extract_claim_values(entity, "P34"):
+        _add_variant(claim["value"])
 
     # --- Life dates (548) ---
     if birth_val or death_val:
-        # Approximate dates (datl)
+        # Approximate dates (datl). Field 548/datl is NOT repeatable, so the
+        # frontend offers the alternatives as a single-select picker when
+        # multiple date claims exist. datl_no_preselection (computed above) leaves
+        # $a empty when not both dates have a preferred rank; the "bitte ein Datum
+        # waehlen" warning is produced (regenerably) by validate_record().
         year_range = format_date_range(birth_val, death_val)
         if year_range:
-            datafields.append(
-                {
+            datl_a = "" if datl_no_preselection else year_range
+            field_548_datl = {
                     "tag": "548",
                     "ind1": " ",
                     "ind2": " ",
                     "subfields": [
-                        {"code": "a", "value": year_range},
+                        {"code": "a", "value": datl_a},
                         {"code": "4", "value": "datl"},
                         {
                             "code": "4",
@@ -331,28 +376,179 @@ def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_p
                         {"code": "i", "value": "Lebensdaten"},
                     ],
                 }
-            )
+            if show_picker:
+                field_548_datl["date_alternatives"] = date_alternatives
+            datafields.append(field_548_datl)
 
-        # Exact dates (datx) if precision >= 11
-        exact_range = format_exact_date_range(birth_val, death_val)
-        if exact_range and exact_range != year_range:
-            datafields.append(
-                {
+        # Exact dates (datx) — build all alternatives from all claims.
+        # Skip combinations that carry no month/day info at all (pure year
+        # ranges like 1731-1809): those belong in datl, not in the "exakte
+        # Lebensdaten" field.
+        datx_alternatives = []
+        if has_multiple_dates:
+            seen_exact = set()
+            for bv in birth_values:
+                for dv in death_values:
+                    if not (date_has_month_or_day(bv) or date_has_month_or_day(dv)):
+                        continue
+                    er = format_exact_date_range(bv, dv)
+                    if er and er not in seen_exact:
+                        seen_exact.add(er)
+                        b_ex = format_wikibase_date(bv, as_exact=True) if bv else ""
+                        d_ex = format_wikibase_date(dv, as_exact=True) if dv else "XX.XX.XXXX"
+                        datx_alternatives.append({"value": er, "label": f"{b_ex}–{d_ex}"})
+
+        if not has_multiple_dates:
+            has_exact = date_has_month_or_day(birth_val) or date_has_month_or_day(death_val)
+            exact_range = format_exact_date_range(birth_val, death_val) if has_exact else ""
+            if exact_range and exact_range != year_range:
+                datafields.append(
+                    {
+                        "tag": "548",
+                        "ind1": " ",
+                        "ind2": " ",
+                        "subfields": [
+                            {"code": "a", "value": exact_range},
+                            {"code": "4", "value": "datx"},
+                            {
+                                "code": "4",
+                                "value": "https://d-nb.info/standards/elementset/gnd#dateOfBirthAndDeath",
+                            },
+                            {"code": "w", "value": "r"},
+                            {"code": "i", "value": "Exakte Lebensdaten"},
+                        ],
+                    }
+                )
+        # The "bitte zutreffende Werte waehlen" prompt for the datx picker is
+        # produced (regenerably) by validate_record() so it reappears when the
+        # user deselects all options again.
+        if has_multiple_dates and datx_alternatives:
+            field_548_datx = {
+                "tag": "548",
+                "ind1": " ",
+                "ind2": " ",
+                "subfields": [
+                    {"code": "a", "value": ""},
+                    {"code": "4", "value": "datx"},
+                    {
+                        "code": "4",
+                        "value": "https://d-nb.info/standards/elementset/gnd#dateOfBirthAndDeath",
+                    },
+                    {"code": "w", "value": "r"},
+                    {"code": "i", "value": "Exakte Lebensdaten"},
+                ],
+                "date_alternatives": datx_alternatives,
+            }
+            datafields.append(field_548_datx)
+
+    # --- Activity dates (548) — fallback when no life dates exist ---
+    # Only used if the person has neither a birth (P77) nor a death (P38) date.
+    # Mirrors the datl/datx logic: activity dates are emitted as datw (non-exact,
+    # year level — like datl) and datz (exact, month/day — like datx). When
+    # several activity dates exist they are offered for selection (datw radio,
+    # datz checkboxes), just like the life-date pickers.
+    if not birth_val and not death_val:
+        start_claims = extract_claim_values(entity, PROP_ACTIVITY_START)
+        end_claims = extract_claim_values(entity, PROP_ACTIVITY_END)
+        event_claims = []
+        for prop in ACTIVITY_EVENT_PROPS:
+            event_claims.extend(extract_claim_values(entity, prop))
+
+        # Like datl/datx: only offer a start-less alternative when there is no
+        # Wirkungsbeginn claim. End keeps None (open/unknown end is valid).
+        start_values = [c["value"] for c in start_claims] or [None]
+        end_values = [c["value"] for c in end_claims] + [None]
+        has_multiple_activity = (
+            len(start_claims) > 1 or len(end_claims) > 1 or len(event_claims) > 1
+            or (bool(event_claims) and bool(start_claims or end_claims))
+        )
+
+        # datw (non-exact, year level — like datl)
+        datw_alternatives = []
+        seen_w = set()
+
+        def _add_w(value):
+            if value and value not in seen_w:
+                seen_w.add(value)
+                datw_alternatives.append({"value": value, "label": value})
+
+        for sv in start_values:
+            for ev in end_values:
+                if sv is None and ev is None:
+                    continue
+                _add_w(format_date_range(sv, ev))
+        for claim in event_claims:
+            _add_w(format_wikibase_date(claim["value"]))
+
+        if datw_alternatives:
+            field_548_datw = {
+                "tag": "548",
+                "ind1": " ",
+                "ind2": " ",
+                "subfields": [
+                    {"code": "a", "value": datw_alternatives[0]["value"]},
+                    {"code": "4", "value": "datw"},
+                    {"code": "4", "value": GND_PERIOD_OF_ACTIVITY},
+                    {"code": "w", "value": "r"},
+                    {"code": "i", "value": "Wirkungsdaten"},
+                ],
+            }
+            if len(datw_alternatives) > 1:
+                field_548_datw["date_alternatives"] = datw_alternatives
+            datafields.append(field_548_datw)
+
+        # datz (exact, month/day — like datx). Skip combinations without any
+        # month/day info (those carry no exact info and are covered by datw).
+        datz_alternatives = []
+        seen_z = set()
+
+        def _add_z(value):
+            if value and value not in seen_z:
+                seen_z.add(value)
+                datz_alternatives.append({"value": value, "label": value})
+
+        for sv in start_values:
+            for ev in end_values:
+                if not (date_has_month_or_day(sv) or date_has_month_or_day(ev)):
+                    continue
+                _add_z(format_exact_date_range(sv, ev))
+        for claim in event_claims:
+            if date_has_month_or_day(claim["value"]):
+                _add_z(format_wikibase_date(claim["value"], as_exact=True))
+
+        datw_year = datw_alternatives[0]["value"] if datw_alternatives else None
+        if datz_alternatives and not has_multiple_activity:
+            # Single exact activity date: pre-fill (mirrors the datx single path)
+            exact = datz_alternatives[0]["value"]
+            if exact and exact != datw_year:
+                datafields.append({
                     "tag": "548",
                     "ind1": " ",
                     "ind2": " ",
                     "subfields": [
-                        {"code": "a", "value": exact_range},
-                        {"code": "4", "value": "datx"},
-                        {
-                            "code": "4",
-                            "value": "https://d-nb.info/standards/elementset/gnd#dateOfBirthAndDeath",
-                        },
+                        {"code": "a", "value": exact},
+                        {"code": "4", "value": "datz"},
+                        {"code": "4", "value": GND_PERIOD_OF_ACTIVITY},
                         {"code": "w", "value": "r"},
-                        {"code": "i", "value": "Exakte Lebensdaten"},
+                        {"code": "i", "value": "Exakte Wirkungsdaten"},
                     ],
-                }
-            )
+                })
+        elif datz_alternatives:
+            # Multiple activity dates: offer datz as multi-select (mirrors datx).
+            # The selection prompt is produced (regenerably) by validate_record().
+            datafields.append({
+                "tag": "548",
+                "ind1": " ",
+                "ind2": " ",
+                "subfields": [
+                    {"code": "a", "value": ""},
+                    {"code": "4", "value": "datz"},
+                    {"code": "4", "value": GND_PERIOD_OF_ACTIVITY},
+                    {"code": "w", "value": "r"},
+                    {"code": "i", "value": "Exakte Wirkungsdaten"},
+                ],
+                "date_alternatives": datz_alternatives,
+            })
 
     # --- Occupation (550) - only those with GND ID ---
     occupation_claims = extract_claim_values(entity, PROP_OCCUPATION)
@@ -367,12 +563,28 @@ def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_p
         if gnd_id:
             occ_with_gnd.append((claim, gnd_id))
 
-    for claim, gnd_id in occ_with_gnd:
+    # Exactly one occupation may carry the non-repeatable code "berc" — the
+    # one hochgerankt (preferred rank) in FactGrid, or the sole occupation if
+    # there is only one. All others get "beru". If multiple claims are preferred
+    # (unexpected), only the first wins.
+    berc_index = next(
+        (i for i, (c, _) in enumerate(occ_with_gnd) if c["rank"] == "preferred"),
+        None,
+    )
+    if berc_index is None and len(occ_with_gnd) == 1:
+        berc_index = 0
+
+    # Sort so that berc (charakteristischer Beruf) comes before beru
+    if berc_index is not None and berc_index > 0:
+        berc_item = occ_with_gnd.pop(berc_index)
+        occ_with_gnd.insert(0, berc_item)
+        berc_index = 0
+
+    for i, (claim, gnd_id) in enumerate(occ_with_gnd):
         occ_qid = claim["value"]
         occ_name = _gnd_name(occ_qid)
         gnd_list = resolved_gnd_ids.get(occ_qid, [])
-        # berc if preferred rank, or if it's the only occupation
-        is_berc = claim["rank"] == "preferred" or len(occ_with_gnd) == 1
+        is_berc = i == berc_index
         code4 = "berc" if is_berc else "beru"
         label_i = "Charakteristischer Beruf" if is_berc else "Beruf"
         field = {
@@ -483,6 +695,30 @@ def convert_entity_to_marc(entity, resolved_labels, resolved_gnd_ids=None, gnd_p
     }
 
 
+def _field_is_exported(df):
+    """Return True if a datafield survives the MARC XML export filter.
+
+    Mirrors the filtering applied in ``_build_record_element`` so that
+    validation (e.g. individualization counting) only considers fields that
+    actually end up in the exported record:
+      * fields with an empty ``$a`` are dropped,
+      * 551 fields without a valid ``(DE-588)`` GND reference are dropped.
+    """
+    sf_a = next((sf for sf in df.get("subfields", []) if sf["code"] == "a"), None)
+    if sf_a is not None and sf_a["value"] == "":
+        return False
+    if df.get("tag") == "551":
+        has_gnd = any(
+            sf["code"] == "0"
+            and sf["value"].startswith("(DE-588)")
+            and sf["value"][len("(DE-588)"):].strip()
+            for sf in df.get("subfields", [])
+        )
+        if not has_gnd:
+            return False
+    return True
+
+
 def validate_record(record):
     """Validate a MARC 21 record against GND Level 1 requirements.
 
@@ -498,12 +734,33 @@ def validate_record(record):
     # Check mandatory fields
     mandatory_missing = [tag for tag in MANDATORY_TAGS if tag not in present_tags]
 
+    # Derive individualization criteria from the data fields. Field 548 is split
+    # by its $4 sub-type so that approximate life dates (datl), exact life dates
+    # (datx) and activity dates (datw) each count as a distinct criterion.
+    # Derive criteria as "<tag>-<$4-code>" so the group assignment follows the
+    # $4 sub-type as required by EH-P-16 (datw is Group 2, only 550 berc is
+    # Group 1, each 551 place type counts separately, etc.).
+    present_criteria = set()
+    for df in record.get("datafields", []):
+        tag = df["tag"]
+        allowed = INDIVIDUALIZATION_SUBTYPE_CODES.get(tag)
+        if not allowed:
+            continue
+        # Only count criteria from fields that will actually be exported
+        # (non-empty $a, 551 with GND reference) so the displayed count matches
+        # the exported record.
+        if not _field_is_exported(df):
+            continue
+        for sf in df.get("subfields", []):
+            if sf["code"] == "4" and sf["value"] in allowed:
+                present_criteria.add(f"{tag}-{sf['value']}")
+
     # Count individualization attributes
     group1_present = [
-        tag for tag in INDIVIDUALIZATION_GROUP1 if tag in present_tags
+        key for key in INDIVIDUALIZATION_GROUP1 if key in present_criteria
     ]
     group2_present = [
-        tag for tag in INDIVIDUALIZATION_GROUP2 if tag in present_tags
+        key for key in INDIVIDUALIZATION_GROUP2 if key in present_criteria
     ]
     total_indiv = len(group1_present) + len(group2_present)
 
@@ -518,6 +775,37 @@ def validate_record(record):
             f"Nur {total_indiv} von {MIN_INDIVIDUALIZATION_TOTAL} "
             f"Individualisierungsmerkmalen vorhanden"
         )
+    # A 548 datl field with an empty $a means no life-date range was selected
+    # (e.g. picker without pre-selection). Regenerable so it clears once filled.
+    for df in record.get("datafields", []):
+        if df["tag"] != "548":
+            continue
+        if not any(sf["code"] == "4" and sf["value"] == "datl" for sf in df.get("subfields", [])):
+            continue
+        sf_a = next((sf["value"] for sf in df.get("subfields", []) if sf["code"] == "a"), "")
+        if sf_a.strip() == "":
+            warnings.append("Feld 548 (datl): bitte ein Datum waehlen")
+
+    # Multi-select date pickers (datx = exact life dates, datz = exact activity
+    # dates): warn while the picker is offered (a field carries date_alternatives)
+    # but nothing is selected yet (no field of that sub-type has a non-empty $a).
+    # Regenerable, so the warning reappears if the user deselects all options.
+    for sub in ("datx", "datz"):
+        fields = [
+            df for df in record.get("datafields", [])
+            if df.get("tag") == "548"
+            and any(sf["code"] == "4" and sf["value"] == sub for sf in df.get("subfields", []))
+        ]
+        if not fields:
+            continue
+        has_alternatives = any(df.get("date_alternatives") for df in fields)
+        has_selected = any(
+            (next((sf["value"] for sf in df.get("subfields", []) if sf["code"] == "a"), "")).strip()
+            for df in fields
+        )
+        if has_alternatives and not has_selected:
+            warnings.append(f"Feld 548 ({sub}): bitte zutreffende Werte waehlen")
+
     # Check for 550/551 fields missing $0 (GND reference)
     for df in record.get("datafields", []):
         if df["tag"] in ("550", "551"):
@@ -527,11 +815,36 @@ def validate_record(record):
                 desc = "Beruf/Beschäftigung" if df["tag"] == "550" else "Geografikum"
                 warnings.append(f"Feld {df['tag']} ({desc} \"{sf_a}\") hat keine GND-Referenz ($0)")
 
+    # Duplicate detection within the record: same GND $0 or same $a within a tag
+    DUP_TAGS = ("400", "550", "551", "670")
+    seen_by_tag = {}  # tag -> {"gnd": set[gnd_id], "name": set[name]}
+    for df in record.get("datafields", []):
+        tag = df["tag"]
+        if tag not in DUP_TAGS:
+            continue
+        entry = seen_by_tag.setdefault(tag, {"gnd": set(), "name": set(), "dup_gnd": set(), "dup_name": set()})
+        gnd_id = next(
+            (sf["value"].replace("(DE-588)", "") for sf in df.get("subfields", [])
+             if sf["code"] == "0" and sf["value"].startswith("(DE-588)")),
+            "",
+        )
+        name = next((sf["value"] for sf in df.get("subfields", []) if sf["code"] == "a"), "")
+        if gnd_id:
+            if gnd_id in entry["gnd"] and gnd_id not in entry["dup_gnd"]:
+                entry["dup_gnd"].add(gnd_id)
+                warnings.append(f"Dublette in Feld {tag}: GND {gnd_id} mehrfach vorhanden")
+            entry["gnd"].add(gnd_id)
+        elif name:
+            if name in entry["name"] and name not in entry["dup_name"]:
+                entry["dup_name"].add(name)
+                warnings.append(f"Dublette in Feld {tag}: \"{name}\" mehrfach vorhanden")
+            entry["name"].add(name)
+
     if len(group1_present) < MIN_INDIVIDUALIZATION_GROUP1:
         missing_g1 = [
-            f"{tag} ({desc})"
-            for tag, desc in INDIVIDUALIZATION_GROUP1.items()
-            if tag not in present_tags
+            desc
+            for key, desc in INDIVIDUALIZATION_GROUP1.items()
+            if key not in present_criteria
         ]
         warnings.append(
             f"Mindestens {MIN_INDIVIDUALIZATION_GROUP1} Merkmal(e) aus Gruppe 1 "
@@ -573,12 +886,15 @@ def records_to_marc_xml(records):
             rec_elem = _build_record_element(record, nsmap)
             root.append(rec_elem)
 
-    return etree.tostring(
+    xml_str = etree.tostring(
         root,
         xml_declaration=True,
         encoding="UTF-8",
         pretty_print=True,
     ).decode("utf-8")
+    # Ensure MARC sort control characters appear as numeric XML references
+    xml_str = xml_str.replace("\x98", "&#152;").replace("\x9c", "&#156;")
+    return xml_str
 
 
 def _build_record_element(record, nsmap):
@@ -594,8 +910,10 @@ def _build_record_element(record, nsmap):
         elem = etree.SubElement(rec, "controlfield", tag=cf["tag"])
         elem.text = cf["value"]
 
-    # Data fields
+    # Data fields (skip fields with empty $a, and 551 without GND reference)
     for df in record.get("datafields", []):
+        if not _field_is_exported(df):
+            continue
         elem = etree.SubElement(
             rec,
             "datafield",

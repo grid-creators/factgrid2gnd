@@ -13,28 +13,37 @@
         Lokale Datenbank
       </label>
     </div>
-    <div class="source-toggle">
+    <div class="source-toggle field079q-row">
       <label class="source-label">079 $q Teilbestandskennzeichen:</label>
-      <select [(ngModel)]="field079q" class="select-079q">
-        @for (opt of field079qOptions; track opt.value) {
-          <option [value]="opt.value">{{ opt.label }}</option>
+      <div class="field079q-list">
+        @for (q of field079q; track $index; let i = $index) {
+          <div class="field079q-entry">
+            <select
+              class="select-079q"
+              [ngModel]="q"
+              (ngModelChange)="setField079qAt(i, $event)"
+            >
+              @for (opt of field079qOptions; track opt.value) {
+                <option [value]="opt.value">{{ opt.label }}</option>
+              }
+            </select>
+            @if (field079q.length > 1) {
+              <button
+                type="button"
+                class="btn-remove-079q"
+                (click)="removeField079q(i)"
+                title="Eintrag entfernen"
+              >−</button>
+            }
+          </div>
         }
-      </select>
-    </div>
-    <div class="source-toggle">
-      <label class="source-label">400 Quellen:</label>
-      <label class="checkbox-option">
-        <input type="checkbox" [(ngModel)]="field400Sources.aliases" />
-        Aliases
-      </label>
-      <label class="checkbox-option">
-        <input type="checkbox" [(ngModel)]="field400Sources.labels" />
-        Labels
-      </label>
-      <label class="checkbox-option">
-        <input type="checkbox" [(ngModel)]="field400Sources.p34" />
-        P34
-      </label>
+        <button
+          type="button"
+          class="btn-add-079q"
+          (click)="addField079q()"
+          title="Weiteres Teilbestandskennzeichen hinzufuegen"
+        >+ Hinzufuegen</button>
+      </div>
     </div>
     <div class="source-toggle">
       <label class="source-label">667 $a Redaktionelle Bemerkung:</label>
@@ -75,21 +84,59 @@
     <div class="main-content">
       <!-- Sidebar: Record list -->
       <aside class="record-list">
-        <h3>Personen ({{ records.length }})</h3>
+        <div class="record-list-header">
+          <h3>Personen ({{ records.length }})</h3>
+          @if (records.length > 0) {
+            <label class="record-select-all" title="Alle auswaehlen / Auswahl aufheben">
+              <input
+                type="checkbox"
+                [checked]="allSelectedForExport()"
+                (change)="toggleAllExportSelection()"
+              />
+              Alle
+            </label>
+          }
+        </div>
         @for (record of records; track record.qid; let i = $index) {
           <div
             class="record-item"
             [class.selected]="i === selectedIndex"
+            [class.is-duplicate]="isDuplicateRecord(record)"
             (click)="selectRecord(i)"
           >
+            <input
+              type="checkbox"
+              class="record-select-checkbox"
+              [checked]="isSelectedForExport(record.qid)"
+              (click)="$event.stopPropagation()"
+              (change)="toggleExportSelection(record.qid, $any($event.target).checked)"
+              title="Fuer selektiven Export markieren"
+            />
             <span class="status-dot" [ngClass]="getStatusIcon(record)"></span>
             <div class="record-info">
+              @if (record.label) {
+                <span class="record-label">{{ record.label }}</span>
+              }
               <span class="record-qid">{{ record.qid }}</span>
-              <span class="record-label">{{ record.label }}</span>
+              @if (isDuplicateRecord(record)) {
+                <span class="dup-badge" [title]="getDuplicateInfo(record)">Dublette</span>
+              }
             </div>
+            <span
+              class="export-indicator"
+              [class.export-ok]="canExportRecord(record)"
+              [class.export-blocked]="!canExportRecord(record)"
+              [title]="canExportRecord(record) ? 'Exportierbar' : ('Nicht exportierbar: ' + exportBlockReasons(record).join('; '))"
+            >{{ canExportRecord(record) ? '✓' : '✗' }}</span>
             <span class="status-badge" [ngClass]="getStatusIcon(record)">
               {{ getStatusLabel(record) }}
             </span>
+            <button
+              type="button"
+              class="btn-remove-record"
+              (click)="$event.stopPropagation(); removeRecord(i)"
+              title="Aus Liste entfernen"
+            >×</button>
           </div>
         }
       </aside>
@@ -97,7 +144,15 @@
       <!-- Main: Record editor -->
       @if (selectedRecord) {
         <main class="record-editor">
-          <h2>{{ selectedRecord.qid }}: {{ selectedRecord.label }}</h2>
+          <h2>
+            <a
+              [href]="'https://database.factgrid.de/wiki/Item:' + selectedRecord.qid"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="factgrid-link"
+              [title]="'FactGrid-Seite fuer ' + selectedRecord.qid + ' oeffnen'"
+            >{{ selectedRecord.qid }}: {{ selectedRecord.label }}</a>
+          </h2>
 
           <!-- Validation -->
           <section class="validation-section">
@@ -173,11 +228,20 @@
             }
 
             @for (df of selectedRecord.datafields; track $index; let fi = $index) {
-              <div class="datafield-block" [id]="'datafield-' + fi">
+              <div class="datafield-block"
+                   [class.missing-gnd-ref]="isMissingGndRef(df) || isMissingCountryCode(df)"
+                   [class.has-date-alternatives]="hasDateAlternatives(df) || hasDateAlternativesDatx(df) || hasDateAlternativesDatw(df) || hasDateAlternativesDatz(df)"
+                   [id]="'datafield-' + fi">
                 <div class="datafield-header">
                   <span class="tag-badge">{{ df.tag }}</span>
                   <span class="indicator">Ind1={{ df.ind1 === ' ' ? '_' : df.ind1 }}</span>
                   <span class="indicator">Ind2={{ df.ind2 === ' ' ? '_' : df.ind2 }}</span>
+                  @if (isMissingGndRef(df)) {
+                    <span class="missing-gnd-badge" title="Keine GND-Referenz ($0) verknüpft">ohne GND</span>
+                  }
+                  @if (isMissingCountryCode(df)) {
+                    <span class="missing-gnd-badge" title="Ländercode ($c) fehlt — bitte manuell eintragen (z. B. XA-DE)">Ländercode fehlt</span>
+                  }
                   <button class="btn-remove" (click)="removeDataField(fi)" title="Feld entfernen">x</button>
                 </div>
                 <div class="subfields">
@@ -197,11 +261,19 @@
                   }
                   @for (sf of df.subfields; track $index; let si = $index) {
                     <div class="subfield-row">
-                      <span class="subfield-code">${{ sf.code }}</span>
+                      <span class="subfield-code-prefix">$</span>
+                      <input
+                        type="text"
+                        maxlength="1"
+                        [(ngModel)]="sf.code"
+                        (change)="onSubfieldChange()"
+                        class="subfield-code-input"
+                        title="Subfeld-Code (ein Zeichen)"
+                      />
                       <input
                         type="text"
                         [(ngModel)]="sf.value"
-                        (change)="onSubfieldChange()"
+                        (change)="onSubfieldChange(df, sf)"
                         class="subfield-input"
                       />
                       <button class="btn-remove-small" (click)="removeSubfield(fi, si)" title="Subfield entfernen">x</button>
@@ -210,17 +282,124 @@
                   <button class="btn-add-sub" (click)="addSubfield(fi)">+ Subfield</button>
                 </div>
               </div>
+              @if (isDatePickerAnchor(fi)) {
+                <div class="date-alternatives-section">
+                  <h4>Lebens-/Wirkungsdaten (548) — Auswahl</h4>
+                  @for (pf of selectedRecord.datafields; track $index) {
+                    @if (hasDateAlternatives(pf)) {
+                      <div class="date-select-row">
+                        <label class="date-select-label">$4=datl (Lebensdaten) — nicht wiederholbar, bitte ein Datum waehlen (Vorauswahl: bevorzugter Rang):</label>
+                        <div class="date-checkbox-list">
+                          @for (alt of pf.date_alternatives; track alt.value) {
+                            <label class="date-checkbox-option">
+                              <input
+                                type="radio"
+                                [name]="'datl-' + selectedRecord.qid"
+                                [checked]="isDateSelected(pf, alt.value)"
+                                (change)="onDatlSelect(pf, alt.value)"
+                              />
+                              {{ alt.label }}
+                            </label>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (hasDateAlternativesDatw(pf)) {
+                      <div class="date-select-row">
+                        <label class="date-select-label">$4=datw (Wirkungsdaten) — nicht wiederholbar, bitte ein Datum waehlen:</label>
+                        <div class="date-checkbox-list">
+                          @for (alt of pf.date_alternatives; track alt.value) {
+                            <label class="date-checkbox-option">
+                              <input
+                                type="radio"
+                                [name]="'datw-' + selectedRecord.qid"
+                                [checked]="isDatwSelected(pf, alt.value)"
+                                (change)="onDatwSelect(pf, alt.value)"
+                              />
+                              {{ alt.label }}
+                            </label>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (hasDateAlternativesDatx(pf)) {
+                      <div class="date-select-row">
+                        <label class="date-select-label">$4=datx (Exakte Lebensdaten) — mehrere exakte Datumsangaben moeglich:</label>
+                        <div class="date-checkbox-list">
+                          @for (alt of pf.date_alternatives; track alt.value) {
+                            <label class="date-checkbox-option">
+                              <input
+                                type="checkbox"
+                                [checked]="isDatxSelected(pf, alt.value)"
+                                (change)="onDatxToggle(pf, alt.value, $any($event.target).checked)"
+                              />
+                              {{ alt.label }}
+                            </label>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (hasDateAlternativesDatz(pf)) {
+                      <div class="date-select-row">
+                        <label class="date-select-label">$4=datz (Exakte Wirkungsdaten) — mehrere exakte Datumsangaben moeglich:</label>
+                        <div class="date-checkbox-list">
+                          @for (alt of pf.date_alternatives; track alt.value) {
+                            <label class="date-checkbox-option">
+                              <input
+                                type="checkbox"
+                                [checked]="isDatzSelected(pf, alt.value)"
+                                (change)="onDatzToggle(pf, alt.value, $any($event.target).checked)"
+                              />
+                              {{ alt.label }}
+                            </label>
+                          }
+                        </div>
+                      </div>
+                    }
+                  }
+                </div>
+              }
             }
           </section>
 
           <!-- Export buttons -->
           <section class="export-section">
-            <button class="btn-primary" (click)="exportCurrent()">
-              Diesen Record exportieren
-            </button>
-            <button class="btn-primary" (click)="exportAll()">
-              Alle exportieren ({{ records.length }} Records)
-            </button>
+            <div class="export-actions">
+              <button
+                class="btn-primary"
+                [disabled]="!canExportCurrent()"
+                [title]="canExportCurrent() ? '' : ('Export gesperrt: ' + exportBlockReasons(selectedRecord).join('; '))"
+                (click)="exportCurrent()"
+              >
+                Diesen Record exportieren
+              </button>
+              <button
+                class="btn-primary"
+                [disabled]="!canExportSelected()"
+                [title]="canExportSelected() ? '' : ('Export gesperrt: ' + exportSelectedBlockReason())"
+                (click)="exportSelected()"
+              >
+                Ausgewaehlte exportieren ({{ selectedForExport.size }})
+              </button>
+              <button
+                class="btn-primary"
+                [disabled]="!canExportAll()"
+                [title]="canExportAll() ? '' : ('Export gesperrt: ' + exportAllBlockReason())"
+                (click)="exportAll()"
+              >
+                Alle exportieren ({{ records.length }} Records)
+              </button>
+            </div>
+            @if (!canExportCurrent()) {
+              <div class="export-block-info">
+                Export gesperrt:
+                <ul>
+                  @for (r of exportBlockReasons(selectedRecord); track r) {
+                    <li>{{ r }}</li>
+                  }
+                </ul>
+              </div>
+            }
           </section>
         </main>
       }

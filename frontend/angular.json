@@ -39,8 +39,8 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "8kB"
+                  "maximumWarning": "12kB",
+                  "maximumError": "16kB"
                 }
               ],
               "outputHashing": "all"
@@ -65,7 +65,7 @@
           },
           "defaultConfiguration": "development",
           "options": {
-            "allowedHosts": ["factgrid2gnd.grid-creators.com"],
+            "allowedHosts": ["factgrid2gnd.grid-creators.com", "factgridviewer.t-duan.de"],
             "proxyConfig": "proxy.conf.json",
             "liveReload": false,
             "hmr": false

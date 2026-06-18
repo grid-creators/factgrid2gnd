@@ -39,12 +39,12 @@ def convert_stream():
             return jsonify({'error': f'Invalid QID format: {qid}'}), 400
 
     source = request.args.get('source', 'server')
-    field079q = request.args.get('field079q', 'd')
+    field079q_raw = request.args.get('field079q', 'd')
+    field079q = [v.strip() for v in field079q_raw.split(',') if v.strip()] or ['d']
     field667a = request.args.get('field667a', 'Historisches Datenzentrum Sachsen-Anhalt')
-    field400sources = request.args.get('field400sources', 'aliases,labels,p34').split(',')
 
     def generate():
-        for event in convert_entities_stream(qids, source=source, field079q=field079q, field667a=field667a, field400sources=field400sources):
+        for event in convert_entities_stream(qids, source=source, field079q=field079q, field667a=field667a):
             yield f"data: {json.dumps(event)}\n\n"
 
     return Response(generate(), mimetype='text/event-stream',
