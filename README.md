@@ -208,7 +208,7 @@ Parameter: `source` (`"server"` oder `"local"`, Standard: `"local"`), `field079q
 | 005 | Zeitstempel |
 | 008 | Feste Datenelemente |
 | 035 | GND-Systemnummer |
-| 040 | Katalogisierungsquelle |
+| 040 | Katalogisierungsquelle ($a = ISIL der einspielenden Einrichtung DE-4218, RDA-Regelwerk) |
 | 042 | Authentifizierungscode |
 | 043 | Laendercode (ISO 3166 / GND) |
 | 075 | Entitaetentyp (piz) |
