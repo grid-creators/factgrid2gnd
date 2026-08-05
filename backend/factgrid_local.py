@@ -14,21 +14,31 @@ import sqlite3
 FACTGRID_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "factgrid.db")
 
 _conn = None
+_conn_ino = None
 
 
 def _get_db():
-    """Get a connection to the local FactGrid database."""
-    global _conn
-    if _conn is not None:
-        return _conn
+    """Get a connection to the local FactGrid database.
+
+    Der naechtliche Refresh ersetzt factgrid.db atomar (os.replace); die
+    Verbindung wird daher neu geoeffnet, sobald sich der Datei-Inode aendert.
+    Die alte Verbindung wird nicht explizit geschlossen — laufende Abfragen
+    halten sie ueber ihre Cursor am Leben, danach raeumt der GC auf.
+    """
+    global _conn, _conn_ino
     db_path = os.path.normpath(FACTGRID_DB_PATH)
-    if not os.path.exists(db_path):
+    try:
+        ino = os.stat(db_path).st_ino
+    except FileNotFoundError:
         raise FileNotFoundError(
             f"Lokale FactGrid-Datenbank nicht gefunden: {db_path}\n"
             "Bitte zuerst scripts/build_factgrid_db.py ausfuehren."
         )
+    if _conn is not None and ino == _conn_ino:
+        return _conn
     _conn = sqlite3.connect(db_path, check_same_thread=False)
     _conn.row_factory = sqlite3.Row
+    _conn_ino = ino
     return _conn
 
 

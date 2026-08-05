@@ -35,7 +35,9 @@ fi
 echo "    Latest dump: $LATEST"
 
 echo "==> 2/4 Downloading $LATEST"
-curl -fL --progress-bar \
+# Fortschrittsbalken nur im Terminal; im Cron-Log stattdessen still (+Fehler)
+if [ -t 1 ]; then CURL_PROGRESS="--progress-bar"; else CURL_PROGRESS="-sS"; fi
+curl -fL $CURL_PROGRESS \
     --retry 5 --retry-delay 5 --retry-all-errors \
     --speed-time 30 --speed-limit 1024 \
     -o "$DUMP_FILE.tmp" "$DUMPS_URL$LATEST"

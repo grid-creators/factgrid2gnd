@@ -32,6 +32,9 @@ DATA_DIR = os.path.join(ROOT_DIR, "data")
 
 DEFAULT_JSON_INPUT = os.path.join(DATA_DIR, "2026-04-16.json")
 DB_OUTPUT = os.path.join(ROOT_DIR, "factgrid.db")
+# Erst in Temp-Datei bauen, dann atomar umbenennen — das Backend darf nie eine
+# halbfertige factgrid.db am Zielpfad sehen.
+DB_TMP = DB_OUTPUT + ".tmp"
 
 BATCH_SIZE = 5000
 
@@ -101,11 +104,11 @@ def main():
             print(f"Error: Input file not found: {path}")
             return
 
-    if os.path.exists(DB_OUTPUT):
-        os.remove(DB_OUTPUT)
-        print(f"Removed existing {DB_OUTPUT}")
+    if os.path.exists(DB_TMP):
+        os.remove(DB_TMP)
+        print(f"Removed stale {DB_TMP}")
 
-    conn = sqlite3.connect(DB_OUTPUT)
+    conn = sqlite3.connect(DB_TMP)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
 
@@ -179,6 +182,8 @@ def main():
     conn.execute("CREATE INDEX idx_gnd_ids_qid ON gnd_ids (qid)")
     conn.commit()
     conn.close()
+
+    os.replace(DB_TMP, DB_OUTPUT)
 
     elapsed = time.time() - start
     size_mb = os.path.getsize(DB_OUTPUT) / (1024 * 1024)

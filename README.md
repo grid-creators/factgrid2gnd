@@ -87,7 +87,7 @@ bash scripts/refresh_factgrid_db.sh
 
 Das Skript holt den aktuellsten Dump (`YYYY-MM-DD.json.gz`) von `https://database.factgrid.de/dumps/`, speichert ihn nach `data/dump.json.gz` (mit Integritaetscheck via `gzip -t`), extrahiert in zwei Durchgaengen alle Personen (P2=Q7) nach `data/subset_P2_Q7.json` und **minimale Stubs** (Labels + nur die Claims `P76` (GND-ID) und `P48` (Koordinaten)) fuer die referenzierten Familien-/Vornamen-, Orts- und Berufs-Items nach `data/subset_referenced_labels.json`, und baut `factgrid.db` aus beiden Dateien neu. Ohne diese Stubs blieben Feld 100 `$a` und andere Namens-/Orts-Felder im Local-Modus rohe QIDs (`Q23861, Q38602` statt `Berger auf Siebenbrunn, Franz von Paula`); ohne die P76/P48-Claims fehlten ausserdem GND-IDs in 551 und der Laendercode-Fallback (Nominatim) wuerde nicht greifen. Laufzeit insgesamt ~25 Minuten.
 
-Der Job ist als Cron eingerichtet (`/etc/cron.d/factgrid-refresh`) und laeuft taeglich um **03:00 UTC**. Logs: `/var/log/factgrid-refresh.log`.
+Der Job ist auf dem Server als Cron des Users `anmca` eingerichtet (`crontab -l`) und laeuft taeglich um **03:00 Uhr** (Serverzeit Europe/Berlin). `flock` verhindert ueberlappende Laeufe. Logs: `~/logs/factgrid-refresh.log`. Die Datenbank wird in eine Temp-Datei gebaut und atomar ersetzt; das Backend erkennt den Austausch am Datei-Inode und oeffnet die Verbindung automatisch neu — ein Neustart ist nicht noetig.
 
 **Manuell (einzelne Schritte):**
 
